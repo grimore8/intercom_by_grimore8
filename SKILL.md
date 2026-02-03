@@ -197,9 +197,21 @@ Intercom must expose and describe all interactive commands so agents can operate
 
 ## Value Transfer (TNK)
 Value transfers are done via **MSB CLI** (not trac‑peer).
-1) Run the MSB CLI using the **same wallet keypair** as your peer.
-2) Use `/get_balance <trac1...>` to verify funds.
-3) Use `/transfer <to_address> <amount>` to send TNK (fee: 0.03 TNK).
+
+### Where the MSB CLI lives
+The MSB CLI is the **main_settlement_bus** app. Use the pinned commit and run it with Pear:
+```bash
+git clone https://github.com/Trac-Systems/main_settlement_bus
+cd main_settlement_bus
+git checkout 5088921
+npm install
+pear run . <store-name>
+```
+
+### How to use the MSB CLI for transfers
+1) Use the **same wallet keypair** as your peer by copying `keypair.json` into the MSB store’s `db` folder.  
+2) In the MSB CLI, run `/get_balance <trac1...>` to verify funds.  
+3) Run `/transfer <to_address> <amount>` to send TNK (fee: 0.03 TNK).
 
 The address used for TNK fees is the peer’s **Trac address** (bech32m, `trac1...`) derived from its public key.
 
