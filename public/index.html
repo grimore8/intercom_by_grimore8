@@ -21,7 +21,7 @@
       font-family: var(--mono);
       letter-spacing:.2px;
     }
-    .wrap{max-width:940px;margin:18px auto;padding:16px}
+    .wrap{max-width:980px;margin:18px auto;padding:16px}
     .title{font-size:28px;font-weight:900;display:flex;gap:10px;align-items:center;margin:6px 0 14px}
     .title .bolt{color:var(--warn)}
     .sub{color:var(--muted);margin-bottom:14px}
@@ -57,12 +57,12 @@
     .btn:hover{border-color:rgba(79,247,200,.55)}
     .mini{color:var(--muted);font-size:12px}
     .label{color:var(--muted);font-size:12px;margin-bottom:6px}
-    input{
+    input, select{
       width:100%; padding:12px 12px;border-radius:14px;
       border:1px solid rgba(20,50,69,.85); background:rgba(7,21,31,.72);
       color:var(--text); font-family:var(--mono); outline:none;
     }
-    input:focus{border-color:rgba(79,247,200,.6)}
+    input:focus, select:focus{border-color:rgba(79,247,200,.6)}
     .two{display:grid;grid-template-columns:1fr 1fr;gap:12px}
     @media (max-width:720px){ .two{grid-template-columns:1fr} }
     .hr{height:1px;background:rgba(20,50,69,.8);margin:12px 0}
@@ -72,20 +72,25 @@
       color:var(--text); overflow:auto; line-height:1.35;
       white-space:pre-wrap;
     }
+    canvas{
+      width:100%;
+      height:220px;
+      border-radius:14px;
+      border:1px solid rgba(20,50,69,.85);
+      background:rgba(7,21,31,.65);
+    }
+    code{color:var(--accent2)}
     .ok{color:var(--accent)}
     .bad{color:var(--bad)}
     .warn{color:var(--warn)}
     .accent2{color:var(--accent2)}
-    .kpi{font-size:14px}
-    .kpi strong{color:var(--accent)}
-    code{color:var(--accent2)}
   </style>
 </head>
 <body>
   <div class="wrap">
     <div class="title"><span class="bolt">⚡</span> Intercom Dashboard Bot <span class="mini">(localhost)</span></div>
     <div class="sub">
-      Pro tip: if you get <span class="warn">429</span>, set <code>SOL_RPC</code> to a provider & keep refresh interval (cache is enabled).
+      Chart: CoinGecko 24h market_chart → rendered on Canvas. (No libs, super light)
     </div>
 
     <div class="grid">
@@ -93,7 +98,7 @@
       <!-- WALLET -->
       <div class="card">
         <div class="row">
-          <div class="pill kpi">SOL Balance: <strong id="solBal">—</strong> SOL</div>
+          <div class="pill">SOL Balance: <strong id="solBal">—</strong> SOL</div>
           <div class="row" style="justify-content:flex-end">
             <div class="pill mini">Updated: <span id="updated">—</span></div>
             <button class="btn" id="refreshBtn">Refresh</button>
@@ -103,20 +108,31 @@
         <div class="label">Wallet (Solana Public Key)</div>
         <input id="pubkey" placeholder="Paste your Solana address (public key)..." />
         <div class="mini" style="margin-top:8px">
-          TX list shows last signatures. Cache prevents spam.
+          TX list uses cached calls to reduce rate limits.
         </div>
       </div>
 
-      <!-- PRICES -->
+      <!-- PRICES + CHART -->
       <div class="card">
         <div class="row">
           <div class="pill">Prices (USD): <span id="pricesLine">—</span></div>
+          <div class="row">
+            <select id="coinSel" title="Chart asset">
+              <option value="bitcoin">BTC</option>
+              <option value="ethereum">ETH</option>
+              <option value="solana">SOL</option>
+            </select>
+            <button class="btn" id="chartBtn">Load Chart</button>
+          </div>
         </div>
         <div class="hr"></div>
-        <pre id="chartBox">Waiting price feed...</pre>
+        <canvas id="chart"></canvas>
+        <div class="mini" style="margin-top:8px">
+          Tip: switch asset → Load Chart.
+        </div>
       </div>
 
-      <!-- ✅ AGENT + DEXSCREENER -->
+      <!-- AGENT + DEXSCREENER -->
       <div class="card">
         <div class="row">
           <div class="pill">Agent Mode (Dexscreener)</div>
@@ -222,6 +238,83 @@
       return `${sign}${n.toFixed(2)}%`;
     }
 
+    // ---- Canvas chart (simple line) ----
+    function drawLineChart(canvas, points, label) {
+      const ctx = canvas.getContext("2d");
+
+      // crisp on mobile
+      const dpr = window.devicePixelRatio || 1;
+      const rect = canvas.getBoundingClientRect();
+      canvas.width = Math.floor(rect.width * dpr);
+      canvas.height = Math.floor(rect.height * dpr);
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+      const w = rect.width;
+      const h = rect.height;
+
+      // background grid
+      ctx.clearRect(0, 0, w, h);
+      ctx.globalAlpha = 1;
+
+      ctx.strokeStyle = "rgba(20,50,69,.65)";
+      ctx.lineWidth = 1;
+
+      for (let i = 1; i <= 5; i++) {
+        const y = (h * i) / 6;
+        ctx.beginPath();
+        ctx.moveTo(12, y);
+        ctx.lineTo(w - 12, y);
+        ctx.stroke();
+      }
+
+      if (!points || points.length < 2) {
+        ctx.fillStyle = "rgba(215,247,255,.8)";
+        ctx.font = "12px ui-monospace, Menlo, monospace";
+        ctx.fillText("No chart data.", 16, 22);
+        return;
+      }
+
+      const vals = points.map(p => p[1]);
+      const min = Math.min(...vals);
+      const max = Math.max(...vals);
+      const pad = (max - min) * 0.05 || 1;
+
+      const x0 = 12, y0 = 18, x1 = w - 12, y1 = h - 18;
+      const scaleX = (x1 - x0) / (points.length - 1);
+      const scaleY = (y1 - y0) / (max - min + pad * 2);
+
+      // line
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = "rgba(79,247,200,.95)";
+      ctx.beginPath();
+      for (let i = 0; i < points.length; i++) {
+        const x = x0 + i * scaleX;
+        const y = y1 - (points[i][1] - (min - pad)) * scaleY;
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      }
+      ctx.stroke();
+
+      // label + min/max
+      ctx.fillStyle = "rgba(215,247,255,.9)";
+      ctx.font = "12px ui-monospace, Menlo, monospace";
+      const last = points[points.length - 1][1];
+      ctx.fillText(`${label}  24h`, 16, 18);
+      ctx.fillText(`last: $${fmtPrice(last)}`, 16, h - 10);
+      ctx.fillText(`min: $${fmtPrice(min)}  max: $${fmtPrice(max)}`, w - 250, h - 10);
+    }
+
+    async function loadChart() {
+      const coin = $("coinSel").value;
+      const c = await getJSON(`/api/chart?coin=${encodeURIComponent(coin)}`);
+      if (!c.ok) {
+        drawLineChart($("chart"), [], "Chart");
+        return;
+      }
+      const label = coin === "bitcoin" ? "BTC" : coin === "ethereum" ? "ETH" : "SOL";
+      drawLineChart($("chart"), c.prices, label);
+    }
+
     async function refreshAll() {
       if (state.refreshing) return;
       state.refreshing = true;
@@ -231,7 +324,7 @@
       const pubkey = $("pubkey").value.trim();
       localStorage.setItem("intercom_pubkey", pubkey);
 
-      // Prices
+      // Prices line
       try {
         const p = await getJSON("/api/prices");
         if (!p.ok) throw new Error(p.error || "prices error");
@@ -243,16 +336,8 @@
           `<span class="accent2">BTC</span> $${fmtPrice(btc.usd)} (${fmtPct(btc.usd_24h_change)}) | ` +
           `<span class="accent2">ETH</span> $${fmtPrice(eth.usd)} (${fmtPct(eth.usd_24h_change)}) | ` +
           `<span class="accent2">SOL</span> $${fmtPrice(sol.usd)} (${fmtPct(sol.usd_24h_change)})`;
-
-        $("chartBox").textContent =
-          `BTC: $${fmtPrice(btc.usd)} (${fmtPct(btc.usd_24h_change)})\n` +
-          `ETH: $${fmtPrice(eth.usd)} (${fmtPct(eth.usd_24h_change)})\n` +
-          `SOL: $${fmtPrice(sol.usd)} (${fmtPct(sol.usd_24h_change)})\n\n` +
-          `Lightweight mode: text chart.\n` +
-          `Extend to real canvas chart later if needed.`;
       } catch (e) {
         $("pricesLine").innerHTML = `<span class="bad">error</span>: ${String(e.message || e)}`;
-        $("chartBox").textContent = `Price feed error: ${String(e.message || e)}`;
       }
 
       // Balance + TX
@@ -322,8 +407,13 @@
     $("dexBtn").addEventListener("click", checkDex);
     $("analyzeBtn").addEventListener("click", runAgent);
 
+    $("chartBtn").addEventListener("click", loadChart);
+    $("coinSel").addEventListener("change", loadChart);
+
     refreshAll();
+    loadChart();
     state.timer = setInterval(refreshAll, state.intervalMs);
+    window.addEventListener("resize", () => loadChart());
   </script>
 </body>
 </html>
